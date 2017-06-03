@@ -24,12 +24,12 @@ def prepare_roidb(imdb):
   recorded.
   """
   roidb = imdb.roidb
-  if not (imdb.name.startswith('coco')):
+  if not (imdb.name.startswith('coco') or imdb.name.startswith('visual_genome')):
     sizes = [PIL.Image.open(imdb.image_path_at(i)).size
          for i in range(imdb.num_images)]
   for i in range(len(imdb.image_index)):
     roidb[i]['image'] = imdb.image_path_at(i)
-    if not (imdb.name.startswith('coco')):
+    if not (imdb.name.startswith('coco') or imdb.name.startswith('visual_genome')):
       roidb[i]['width'] = sizes[i][0]
       roidb[i]['height'] = sizes[i][1]
     # need gt_overlaps as a dense array for argmax

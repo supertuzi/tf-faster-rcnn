@@ -70,6 +70,7 @@ def combined_roidb(imdb_names):
     imdb.set_proposal_method(cfg.TRAIN.PROPOSAL_METHOD)
     print('Set proposal method: {:s}'.format(cfg.TRAIN.PROPOSAL_METHOD))
     roidb = get_training_roidb(imdb)
+    print('processing roidb......')
     return roidb
 
   roidbs = [get_roidb(s) for s in imdb_names.split('+')]

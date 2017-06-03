@@ -83,7 +83,7 @@ class SolverWrapper(object):
     try:
       reader = pywrap_tensorflow.NewCheckpointReader(file_name)
       var_to_shape_map = reader.get_variable_to_shape_map()
-      return var_to_shape_map 
+      return var_to_shape_map
     except Exception as e:  # pylint: disable=broad-except
       print(str(e))
       if "corrupted compressed block contents" in str(e):
@@ -192,16 +192,16 @@ class SolverWrapper(object):
             fc6_conv = tf.get_variable("fc6_conv", [7, 7, 512, 4096], trainable=False)
             fc7_conv = tf.get_variable("fc7_conv", [1, 1, 4096, 4096], trainable=False)
             conv1_rgb = tf.get_variable("conv1_rgb", [3, 3, 3, 64], trainable=False)
-            restorer_fc = tf.train.Saver({"vgg_16/fc6/weights": fc6_conv, 
+            restorer_fc = tf.train.Saver({"vgg_16/fc6/weights": fc6_conv,
                                           "vgg_16/fc7/weights": fc7_conv,
                                           "vgg_16/conv1/conv1_1/weights": conv1_rgb})
             restorer_fc.restore(sess, self.pretrained_model)
 
-            sess.run(tf.assign(var_to_dic['vgg_16/fc6/weights:0'], tf.reshape(fc6_conv, 
+            sess.run(tf.assign(var_to_dic['vgg_16/fc6/weights:0'], tf.reshape(fc6_conv,
                                 var_to_dic['vgg_16/fc6/weights:0'].get_shape())))
-            sess.run(tf.assign(var_to_dic['vgg_16/fc7/weights:0'], tf.reshape(fc7_conv, 
+            sess.run(tf.assign(var_to_dic['vgg_16/fc7/weights:0'], tf.reshape(fc7_conv,
                                 var_to_dic['vgg_16/fc7/weights:0'].get_shape())))
-            sess.run(tf.assign(var_to_dic['vgg_16/conv1/conv1_1/weights:0'], 
+            sess.run(tf.assign(var_to_dic['vgg_16/conv1/conv1_1/weights:0'],
                                 tf.reverse(conv1_rgb, [2])))
       elif self.net._arch.startswith('res_v1'):
         print('Fix Resnet V1 layers..')
@@ -213,6 +213,7 @@ class SolverWrapper(object):
             restorer_fc.restore(sess, self.pretrained_model)
 
             sess.run(tf.assign(var_to_dic[self.net._resnet_scope + '/conv1/weights:0'], tf.reverse(conv1_rgb, [2])))
+            print('fix resnet v1 layer done!')
       else:
         # every network should fix the rgb issue at least
         raise NotImplementedError
@@ -230,12 +231,12 @@ class SolverWrapper(object):
       # tried my best to find the random states so that it can be recovered exactly
       # However the Tensorflow state is currently not available
       with open(str(nfiles[-1]), 'rb') as fid:
-        st0 = pickle.load(fid)
-        cur = pickle.load(fid)
-        perm = pickle.load(fid)
-        cur_val = pickle.load(fid)
-        perm_val = pickle.load(fid)
-        last_snapshot_iter = pickle.load(fid)
+        st0 = pickle.load(fid,encoding='bytes')
+        cur = pickle.load(fid,encoding='bytes')
+        perm = pickle.load(fid,encoding='bytes')
+        cur_val = pickle.load(fid,encoding='bytes')
+        perm_val = pickle.load(fid,encoding='bytes')
+        last_snapshot_iter = pickle.load(fid,encoding='bytes')
 
         np.random.set_state(st0)
         self.data_layer._cur = cur
@@ -372,7 +373,10 @@ def train_net(network, imdb, roidb, valroidb, output_dir, tb_dir,
   valroidb = filter_roidb(valroidb)
 
   tfconfig = tf.ConfigProto(allow_soft_placement=True)
+                            # , log_device_placement=True)
   tfconfig.gpu_options.allow_growth = True
+
+  print(tfconfig)
 
   with tf.Session(config=tfconfig) as sess:
     sw = SolverWrapper(sess, network, imdb, roidb, valroidb, output_dir, tb_dir,
