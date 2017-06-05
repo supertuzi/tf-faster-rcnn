@@ -12,6 +12,7 @@ from datasets.VG import VG
 from datasets.imdb import imdb
 import datasets.ds_utils as ds_utils
 from model.config import cfg
+from .vg_eval import vg_eval
 import os.path as osp
 import sys
 import os
@@ -33,6 +34,7 @@ class visual_genome(imdb):
     # name, paths
     self._data_path = osp.join(cfg.DATA_DIR, 'visual_genome')
     self._data_name = categories_name + '_' + split
+    self.categories_name = categories_name
     # load VG API, class <-> id mappings
     self._VG= VG(self._get_ann_file())
     self.cats = categories
@@ -218,18 +220,35 @@ class visual_genome(imdb):
     print('~~~~ Summary metrics ~~~~')
     coco_eval.summarize()
 
-  def _do_detection_eval(self, res_file, output_dir):
-    ann_type = 'bbox'
-    coco_dt = self._COCO.loadRes(res_file)
-    coco_eval = COCOeval(self._COCO, coco_dt)
-    coco_eval.params.useSegm = (ann_type == 'segm')
-    coco_eval.evaluate()
-    coco_eval.accumulate()
-    self._print_detection_eval_metrics(coco_eval)
-    eval_file = osp.join(output_dir, 'detection_results.pkl')
-    with open(eval_file, 'wb') as fid:
-      pickle.dump(coco_eval, fid, pickle.HIGHEST_PROTOCOL)
-    print('Wrote COCO eval results to: {}'.format(eval_file))
+  def _do_detection_eval(self,output_dir):
+      annopath = os.path.join(
+        self._data_path, 'annotations', 'objects.json')
+      imagesetfile = os.path.join(
+        self._data_path, self._data_name)
+
+      cachedir = os.path.join(self._data_path, 'annotations_cache')
+      aps = []
+      if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+      for i, cls in enumerate(self._classes):
+        if cls == '__background__':
+          continue
+        filename = self._get_vg_results_file_template().format(cls)
+        rec, prec, ap = vg_eval(
+          filename, annopath, imagesetfile, cls, cachedir, ovthresh=0.5)
+        aps += [ap]
+        print(('AP for {} = {:.4f}'.format(cls, ap)))
+        with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
+          pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
+      print(('Mean AP = {:.4f}'.format(np.mean(aps))))
+      print('~~~~~~~~')
+      print('Results:')
+      for ap in aps:
+        print(('{:.3f}'.format(ap)))
+      print(('{:.3f}'.format(np.mean(aps))))
+      print('~~~~~~~~')
+      print('')
+      print('--------------------------------------------------------------')
 
   def _vg_results_one_category(self, boxes, cat_id):
     results = []
@@ -249,23 +268,40 @@ class visual_genome(imdb):
           'score': scores[k]} for k in range(dets.shape[0])])
     return results
 
-  def _write_vg_results_file(self, all_boxes, res_file):
-    # [{"image_id": 42,
-    #   "category_id": 18,
-    #   "bbox": [258.15,41.29,348.26,243.78],
-    #   "score": 0.236}, ...]
-    results = []
+  def _get_vg_results_file_template(self):
+    # VOCdevkit/results/VOC2007/Main/<comp_id>_det_test_aeroplane.txt
+    filename = 'det_' + self.categories_name + '_{:s}.txt'
+    dir = os.path.join(self._data_path,
+      'results',
+      'VG' , self.categories_name,
+      'Main')
+    if not os.path.exists(dir):
+      os.mkdirs(dir)
+    path = os.path.join(
+      self._data_path,
+      'results',
+      'VG', self.categories_name,
+      'Main',
+      filename)
+    return path
+
+  def _write_vg_results_file(self, all_boxes):
     for cls_ind, cls in enumerate(self.classes):
       if cls == '__background__':
         continue
-      print('Collecting {} results ({:d}/{:d})'.format(cls, cls_ind,
-                                                       self.num_classes - 1))
-      coco_cat_id = cls_ind
-      results.extend(self._vg_results_one_category(all_boxes[cls_ind],
-                                                     coco_cat_id))
-    print('Writing results json to {}'.format(res_file))
-    with open(res_file, 'w') as fid:
-      json.dump(results, fid)
+      print('Writing {} VOC results file'.format(cls))
+      filename = self._get_vg_results_file_template().format(cls)
+      with open(filename, 'wt') as f:
+        for im_ind, index in enumerate(self.image_index):
+          dets = all_boxes[cls_ind][im_ind]
+          if dets == []:
+            continue
+          # the VOCdevkit expects 1-based indices
+          for k in range(dets.shape[0]):
+            f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                    format(index, dets[k, -1],
+                           dets[k, 0] + 1, dets[k, 1] + 1,
+                           dets[k, 2] + 1, dets[k, 3] + 1))
 
   def evaluate_detections(self, all_boxes, output_dir):
     res_file = osp.join(output_dir, ('detections_' +
@@ -273,11 +309,12 @@ class visual_genome(imdb):
                                      '_results'))
     if self.config['use_salt']:
       res_file += '_{}'.format(str(uuid.uuid4()))
-    res_file += '.json'
-    self._write_vg_results_file(all_boxes, res_file)
+    res_file += '.txt'
+    with open(res_file, 'wb') as f:
+        pickle.dump(all_boxes, f)
+    self._write_vg_results_file(all_boxes)
     # Only do evaluation on non-test sets
-    if self._image_set.find('test') == -1:
-      self._do_detection_eval(res_file, output_dir)
+    self._do_detection_eval(output_dir)
     # Optionally cleanup results json file
     if self.config['cleanup']:
       os.remove(res_file)

@@ -111,4 +111,3 @@ class VG(object):
         h, w, c = im.shape
         return h, w
 
-
